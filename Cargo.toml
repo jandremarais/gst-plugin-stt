@@ -1,0 +1,22 @@
+[package]
+name = "gst-plugin-stt"
+version = "0.1.0"
+edition = "2021"
+authors = ["Jan Marais <maraisjandre9@gmail.com>"]
+description = "GStreamer Rust speech to text plugin"
+repository = "https://example.com"
+
+[dependencies]
+anyhow = "1.0.90"
+byte-slice-cast = "1.2.2"
+gst = { version = "0.23.2", package = "gstreamer" }
+gst-audio = { version = "0.23.2", package = "gstreamer-audio" }
+gst-base = { version = "0.23.2", package = "gstreamer-base" }
+
+[lib]
+name = "stt"
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[build-dependencies]
+gst-plugin-version-helper = "0.8.2"
