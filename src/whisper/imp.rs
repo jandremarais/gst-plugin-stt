@@ -1,10 +1,13 @@
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
+use std::time::Instant;
 
 use byte_slice_cast::AsSliceOf;
 use gst::subclass::prelude::*;
 use gst::{glib, FlowError};
 use gst_audio::subclass::prelude::*;
 use gst_base::subclass::base_transform::{GenerateOutputSuccess, PrepareOutputBufferSuccess};
+
+use crate::silero::Silero;
 
 static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
     gst::DebugCategory::new(
@@ -14,21 +17,28 @@ static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
     )
 });
 
+struct State {
+    samples: Vec<i16>,
+    silero: Silero,
+}
+
 #[derive(Default)]
-pub struct Whisper {}
+pub struct Whisper {
+    state: Mutex<Option<State>>,
+}
 
 #[glib::object_subclass]
 impl ObjectSubclass for Whisper {
     const NAME: &'static str = "Whisper";
     type Type = super::Whisper;
     type ParentType = gst_base::BaseTransform;
+
+    // fn new() -> Self {
+    //     todo!()
+    // }
 }
 
-impl Whisper {
-    fn drain(&self) -> Result<gst::FlowSuccess, gst::FlowError> {
-        todo!()
-    }
-}
+impl Whisper {}
 
 impl ObjectImpl for Whisper {}
 
@@ -75,14 +85,9 @@ impl ElementImpl for Whisper {
             .unwrap();
 
             vec![src_pad_template, sink_pad_template]
-            // vec![sink_pad_template, src_pad_template]
         });
         PAD_TEMPLATES.as_ref()
     }
-
-    // fn provide_clock(&self) -> Option<gst::Clock> {
-    //     Some(gst::SystemClock::obtain())
-    // }
 }
 
 impl BaseTransformImpl for Whisper {
@@ -93,6 +98,12 @@ impl BaseTransformImpl for Whisper {
 
     fn start(&self) -> Result<(), gst::ErrorMessage> {
         gst::info!(CAT, imp = self, "started ",);
+        let silero = Silero::new("./out.onnx").unwrap();
+        // let silero = Silero::new("./silero_vad.onnx").unwrap();
+        *self.state.lock().unwrap() = Some(State {
+            silero,
+            samples: vec![],
+        });
         Ok(())
     }
 
@@ -127,37 +138,44 @@ impl BaseTransformImpl for Whisper {
         if let Some(b) = self.take_queued_buffer() {
             let buffer_reader = b.as_ref().map_readable().map_err(|_| FlowError::Error)?;
             let samples: &[i16] = buffer_reader.as_slice_of().map_err(|_| FlowError::Error)?;
-            gst::info!(CAT, imp = self, "yes output {}", samples.len());
-            let b = gst::Buffer::from_slice("hello".as_bytes());
-            Ok(GenerateOutputSuccess::Buffer(b))
+            let buffer_len = samples.len();
+            if buffer_len == 0 {
+                return Ok(GenerateOutputSuccess::NoOutput);
+            }
+
+            let mut state = self.state.lock().unwrap();
+            if let Some(state_inner) = state.as_mut() {
+                if (state_inner.samples.len() + buffer_len) < 480 {
+                    state_inner.samples.extend_from_slice(samples);
+                    Ok(GenerateOutputSuccess::NoOutput)
+                } else {
+                    let mut prev_samples = state_inner.samples.clone();
+                    prev_samples.extend_from_slice(samples);
+                    state_inner.samples.clear();
+                    // let now = Instant::now();
+                    let level = state_inner.silero.calc_level(&prev_samples).unwrap();
+                    // let level = 0.51;
+                    state_inner.silero.reset();
+                    // dbg!("got level in {:?}", now.elapsed());
+                    if level > 0.5 {
+                        let txt = format!("hello: {level:.2}\n");
+                        let mut b = gst::Buffer::with_size(txt.len()).unwrap();
+                        b.get_mut()
+                            .unwrap()
+                            .copy_from_slice(0, txt.as_bytes())
+                            .unwrap();
+                        Ok(GenerateOutputSuccess::Buffer(b))
+                    } else {
+                        // dbg!(level);
+                        Ok(GenerateOutputSuccess::NoOutput)
+                    }
+                }
+            } else {
+                Ok(GenerateOutputSuccess::NoOutput)
+            }
         } else {
             gst::info!(CAT, imp = self, "no output",);
             Ok(GenerateOutputSuccess::NoOutput)
         }
-        // gst::info!(CAT, imp = self, "generate",);
     }
-
-    // fn transform(
-    //     &self,
-    //     inbuf: &gst::Buffer,
-    //     outbuf: &mut gst::BufferRef,
-    // ) -> Result<gst::FlowSuccess, gst::FlowError> {
-    //     gst::info!(CAT, imp = self, "tfming",);
-    //     // Simulating output text for the example
-    //     let output_text = "Recognized speech text";
-
-    //     // Write the recognized text to the output buffer
-    //     let mut buffer_map = outbuf.map_writable().map_err(|_| gst::FlowError::Error)?;
-    //     buffer_map
-    //         .as_mut_slice()
-    //         .copy_from_slice(output_text.as_bytes());
-
-    //     Ok(gst::FlowSuccess::Ok)
-    // }
-
-    // fn query(&self, direction: gst::PadDirection, query: &mut gst::QueryRef) -> bool {
-
-    // }
 }
-
-// impl AudioFilterImpl for Whisper {}

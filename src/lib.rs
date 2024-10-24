@@ -1,4 +1,5 @@
 use gst::glib;
+mod silero;
 mod whisper;
 
 gst::plugin_define!(

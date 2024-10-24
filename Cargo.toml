@@ -12,6 +12,10 @@ byte-slice-cast = "1.2.2"
 gst = { version = "0.23.2", package = "gstreamer" }
 gst-audio = { version = "0.23.2", package = "gstreamer-audio" }
 gst-base = { version = "0.23.2", package = "gstreamer-base" }
+ndarray = "0.16.1"
+ort = { version = "2.0.0-rc.7", features = ["load-dynamic", "ndarray"] }
+# ort = { version = "2.0.0-rc.2", features = ["download-binaries", "ndarray"] }
+
 
 [lib]
 name = "stt"
